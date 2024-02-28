@@ -1,76 +1,124 @@
 import torch
-from torch.utils.data import Dataset
+import torch.nn as nn
 import pandas as pd
+from torch.utils.data import Dataset, DataLoader
+from torch.nn.utils.rnn import pad_sequence
+from torchtext.data.utils import get_tokenizer
 from collections import Counter
-from torch.utils.data.dataloader import DataLoader
+import torchtext
+from tqdm import tqdm
+
+def artist_to_label(artist_name):
+    # Define a dictionary mapping artist names to numerical labels
+    artist_label_map = {
+        "ABBA": 0,
+        "Bee Gees": 1,
+        "Bob Dylan": 2,
+        # Add more artists as needed
+    }
+    
+    # Return the numerical label corresponding to the artist name
+    return artist_label_map.get(artist_name, -1)  # Return -1 if artist name not found
 
 
+# Define the dataset class
 class LyricsDataset(Dataset):
-    def __init__(self, filename, embedding=None, name=None, transform=None, target_transform=None):
-        self.data = pd.read_csv(filename)
-        self.name = name
-        self.transform = transform
-        self.target_transform = target_transform
-        self.num_of_labels = len(self.unique_labels())
-        self.labels = self.enumerate_labels()
-        self.artists_list = list(self.labels.keys())
-        self.embedding = embedding
+    def __init__(self, csv_file):
+        self.data = pd.read_csv(csv_file)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        artist_name = self.data.iloc[idx]['artist']
-        title = self.data.iloc[idx]['song']
         lyrics = self.data.iloc[idx]['text']
-        if self.embedding is not None:
-            lyrics = self.embedding(lyrics)
-        return self.labels[artist_name], lyrics, title, artist_name
+        artist = self.data.iloc[idx]['artist']
+        return lyrics, artist
 
-    def enumerate_labels(self):
-        c = 0
-        d = {}
-        labels = self.unique_labels()
-        for artist_name in labels:
-            d[artist_name] = c
-            c += 1
-        return d
+# Load the datasets
+train_dataset = LyricsDataset("songdata_train.csv")
+test_dataset = LyricsDataset("songdata_test.csv")
 
-    def unique_labels(self):
-        labels = self.data['artist'].tolist()
-        return set(labels)
+# Tokenization and vocabulary creation
+tokenizer = get_tokenizer("basic_english")
 
-    def print_stats(self):
-        print("#######################")
-        print("dataset name: ", self.name)
-        print("dataset length: ", len(self.data))
-        print("number of labels: ", len(self.unique_labels()))
-        print("number of words in all lyrics: ", sum(len(x) for x in self.data['text'].to_list()))
-        print("#######################")
+counter = Counter()
+for lyrics, _ in train_dataset:
+    counter.update(tokenizer(lyrics))
 
-    def get_vocab(self):
-        all_words = self.data['text'].to_list() + self.data['artist'].to_list()
-        Vocab = Counter()
-        for lyric in all_words:
-            words_as_list = lyric.split(' ')
-            if '' in words_as_list:
-                words_as_list.remove("")
-            Vocab += Counter(words_as_list)
-        if '0' not in Vocab:
-            Vocab += Counter(['0'])
-        return Vocab
+vocab = torchtext.vocab.Vocab(counter)
+
+# Function to encode text to tensor
+def text_to_tensor(text):
+    return torch.tensor([vocab[token] for token in tokenizer(text)], dtype=torch.long)
+
+# Function to collate data samples into batches
+def collate_batch(batch):
+    lyrics, artists = zip(*batch)
+    lyrics_tensor = [text_to_tensor(lyric) for lyric in lyrics]
+    lyrics_tensor_padded = pad_sequence(lyrics_tensor, padding_value=0, batch_first=True)
+    artists_tensor = torch.tensor([artist_to_label(artist) for artist in artists], dtype=torch.long)
+    return lyrics_tensor_padded, artists_tensor
+
+# Create data loaders
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=collate_batch)
+test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=collate_batch)
+
+# Define the LSTM model
+class LSTMModel(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim):
+        super(LSTMModel, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        output, _ = self.lstm(embedded)
+        output = self.fc(output[:, -1, :])
+        return output
+
+# Define a function to train the model
+def train_model(model, train_loader, criterion, optimizer, num_epochs=10):
+    for epoch in range(num_epochs):
+        model.train()
+        total_loss = 0
+        correct = 0
+        total_samples = 0
+        with tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch") as t_loader:
+            for lyrics, artists in t_loader:
+                optimizer.zero_grad()
+                output = model(lyrics)
+                loss = criterion(output, artists)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+                _, predicted = torch.max(output, 1)
+                correct += (predicted == artists).sum().item()
+                total_samples += artists.size(0)
+                t_loader.set_postfix(loss=total_loss/len(train_loader), accuracy=correct/total_samples)
 
 
+# Define the model
+num_artists = len(set(artist_to_label(artist) for _, artist in train_dataset))
+model = LSTMModel(len(vocab), embedding_dim=100, hidden_dim=128, output_dim=num_artists)
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
+# Train the model
+train_model(model, train_loader, criterion, optimizer, num_epochs=10)
 
+# Define a function to evaluate the model
+def evaluate_model(model, test_loader):
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for lyrics, artists in test_loader:
+            output = model(lyrics)
+            _, predicted = torch.max(output, 1)
+            total += artists.size(0)
+            correct += (predicted == artists).sum().item()
+    print(f"Accuracy: {correct/total}")
 
-## THIS IS AN EXAMPLE SHOWING HOW TO ITERATE THROUGH THE DATA IN BATCHES##
-d = LyricsDataset(filename = FILENAME)
-loader = DataLoader(d, batch_size=2, shuffle=True, pin_memory=True)
-
-for label, lyric, title, artist in loader:
-  print("label: ",label)
-  print("lyric: ",lyric)
-  print("title: ",title)
-  print("artist: ",artist)
-  break
+# Evaluate the model
+evaluate_model(model, test_loader)
