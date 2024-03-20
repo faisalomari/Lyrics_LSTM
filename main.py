@@ -31,7 +31,7 @@ class LyricsDataset(Dataset):
         artist = self.data.iloc[idx]['artist']
         return lyrics, artist
 
-train_dataset = LyricsDataset("clean_train.csv")
+train_dataset = LyricsDataset("songdata_train.csv")
 test_dataset = LyricsDataset("songdata_test.csv")
 
 tokenizer = get_tokenizer("basic_english")
@@ -72,7 +72,7 @@ class LSTMModel(nn.Module):
         output = self.fc(lstm_output[:, -1, :])
         return output
 
-def train_model(model, train_loader, test_loader, criterion, optimizer, num_epochs=10):
+def train_model_1(model, train_loader, test_loader, criterion, optimizer, num_epochs=10):
     loss_values = []  # To store loss values for training
     accuracy_values = []  # To store accuracy values for training
     test_loss_values = []  # To store loss values for testing
@@ -146,6 +146,93 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, num_epoc
 
     # Save the best model
     torch.save(best_model_state_dict, 'best_model.pth')
+
+def train_model(model, train_loader, test_loader, criterion, optimizer, num_epochs=10):
+    loss_values = []  # To store loss values for training
+    accuracy_values = []  # To store accuracy values for training
+    test_loss_values = []  # To store loss values for testing
+    test_accuracy_values = []  # To store accuracy values for testing
+
+    best_accuracy = 0.0
+    best_accuracy_epoch = 0
+    best_model_state_dict = None
+
+    global_batch_steps = 0  # To track global batch steps
+
+    for epoch in range(num_epochs):
+        model.train()
+        total_loss = 0
+        correct = 0
+        total_samples = 0
+
+        with tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch") as t_loader:
+            for lyrics, artists in t_loader:
+                optimizer.zero_grad()
+                output = model(lyrics)
+                loss = criterion(output, artists)
+                loss.backward()
+                optimizer.step()
+
+                total_loss += loss.item()
+                _, predicted = torch.max(output, 1)
+                correct += (predicted == artists).sum().item()
+                total_samples += artists.size(0)
+                global_batch_steps += 1
+
+                # Store loss and accuracy values for training
+                loss_values.append(loss.item())
+                accuracy_values.append(correct / total_samples)
+
+                # Evaluate model on test set every batch
+                test_loss, test_accuracy = evaluate_model(model, test_loader, criterion)
+                test_loss_values.append(test_loss)
+                test_accuracy_values.append(test_accuracy)
+
+                t_loader.set_postfix(loss=total_loss/len(train_loader), accuracy=correct/total_samples)
+
+        # Perform evaluation on test set every epoch
+        print(f"\nEvaluation on Test Set after Epoch {epoch + 1}:")
+        test_loss, test_accuracy = evaluate_model(model, test_loader, criterion)
+        test_loss_values.append(test_loss)
+        test_accuracy_values.append(test_accuracy)
+
+        # Save the model with the best accuracy
+        if test_accuracy > best_accuracy:
+            best_accuracy_epoch = epoch
+            best_accuracy = test_accuracy
+            best_model_state_dict = model.state_dict()
+
+    # Plot training and test loss and accuracy after training
+    plt.figure(figsize=(15, 5))
+
+    # Plot training and test loss
+    plt.subplot(1, 2, 1)
+    plt.plot(loss_values, label='Training Loss')
+    plt.plot(test_loss_values, label='Test Loss')
+    plt.xlabel('Global Batch Steps')
+    plt.ylabel('Loss')
+    plt.title('Training and Test Loss')
+    plt.legend()
+
+    # Plot training and test accuracy
+    plt.subplot(1, 2, 2)
+    plt.plot(accuracy_values, label='Training Accuracy')
+    plt.plot(test_accuracy_values, label='Test Accuracy')
+    plt.xlabel('Global Batch Steps')
+    plt.ylabel('Accuracy')
+    plt.title('Training and Test Accuracy')
+    plt.legend()
+
+    plt.tight_layout()
+
+    # Save combined plots for accuracy and loss evaluation
+    plot_filename = os.path.join('process_plots', 'evaluation_plot_batch.png')
+    plt.savefig(plot_filename)
+    plt.close()
+
+    # Save the best model
+    torch.save(best_model_state_dict, 'best_model.pth')
+
 
 def evaluate_model(model, test_loader, criterion):
     model.eval()
