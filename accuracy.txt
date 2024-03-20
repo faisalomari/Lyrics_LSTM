@@ -1,0 +1,11 @@
+Evaluation on Test Set after 74 epochs:
+Test Accuracy: 0.6744186046511628
+Test Loss: 1.1858525276184082
+best_model_accuracy:  0.6744186046511628
+best_accuracy_epoch:  73
+
+Evaluation on Test Set after 114 epochs:
+Test Accuracy: 0.6744186046511628
+Test Loss: 1.3105686902999878
+best_model_accuracy:  0.6744186046511628
+best_accuracy_epoch:  113
