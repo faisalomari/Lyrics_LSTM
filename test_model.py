@@ -7,18 +7,12 @@ from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from collections import Counter
 import torchtext
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import os
-
-# Define the artist_to_label function, LyricsDataset class, and other necessary functions
 
 def artist_to_label(artist_name):
     artist_label_map = {
         "ABBA": 0,
         "Bee Gees": 1,
         "Bob Dylan": 2,
-        # Add more artists as needed
     }
     return artist_label_map.get(artist_name, -1)
 
@@ -100,7 +94,7 @@ def evaluate_model(model, test_loader, criterion):
     return test_loss, test_accuracy
 
 # Load the saved model
-saved_model_path = 'saved_models/72batched.pth'
+saved_model_path = 'saved_models/best_model.pth'
 num_artists = len(set(artist_to_label(artist) for _, artist in train_dataset))
 loaded_model = LSTMModel(len(vocab), embedding_dim=500, hidden_dim=128, output_dim=num_artists, num_layers=2)
 loaded_model.load_state_dict(torch.load(saved_model_path))

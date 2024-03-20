@@ -10,16 +10,15 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 
-def artist_to_label(artist_name):
+def artist_to_label(artist_name): #mapping the classes according to the artis
     artist_label_map = {
         "ABBA": 0,
         "Bee Gees": 1,
         "Bob Dylan": 2,
-        # Add more artists as needed
     }
     return artist_label_map.get(artist_name, -1)
 
-class LyricsDataset(Dataset):
+class LyricsDataset(Dataset): #the dataset class to load the data from the csv files
     def __init__(self, csv_file):
         self.data = pd.read_csv(csv_file)
 
@@ -31,10 +30,10 @@ class LyricsDataset(Dataset):
         artist = self.data.iloc[idx]['artist']
         return lyrics, artist
 
-train_dataset = LyricsDataset("songdata_train.csv")
+train_dataset = LyricsDataset("songdata_train.csv") #loading the data for the train and test sets.
 test_dataset = LyricsDataset("songdata_test.csv")
 
-tokenizer = get_tokenizer("basic_english")
+tokenizer = get_tokenizer("basic_english") #the tokenizer
 
 counter = Counter()
 for lyrics, _ in train_dataset:
@@ -42,20 +41,20 @@ for lyrics, _ in train_dataset:
 
 vocab = torchtext.vocab.Vocab(counter)
 
-def text_to_tensor(text):
+def text_to_tensor(text): #converting to tenosr to deal with it as an inupt for the model
     return torch.tensor([vocab[token] for token in tokenizer(text)], dtype=torch.long)
 
-def collate_batch(batch):
+def collate_batch(batch): #collate batch to uniform the data and tensors and padding them with zeros according to uniform length
     lyrics, artists = zip(*batch)
     lyrics_tensor = [text_to_tensor(lyric) for lyric in lyrics]
     lyrics_tensor_padded = pad_sequence(lyrics_tensor, padding_value=0, batch_first=True)
     artists_tensor = torch.tensor([artist_to_label(artist) for artist in artists], dtype=torch.long)
     return lyrics_tensor_padded, artists_tensor
 
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, collate_fn=collate_batch)
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, collate_fn=collate_batch) #data loaders to use in the training
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, collate_fn=collate_batch)
 
-class LSTMModel(nn.Module):
+class LSTMModel(nn.Module): #The model class and the architecture on it
     def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, num_layers=1):
         super(LSTMModel, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
@@ -72,7 +71,7 @@ class LSTMModel(nn.Module):
         output = self.fc(lstm_output[:, -1, :])
         return output
 
-def train_model_1(model, train_loader, test_loader, criterion, optimizer, num_epochs=10):
+def train_model_1(model, train_loader, test_loader, criterion, optimizer, num_epochs=10): #This functions was used for model 1, 2 and 3 and it plots the accuracy and loss according to the epoch
     loss_values = []  # To store loss values for training
     accuracy_values = []  # To store accuracy values for training
     test_loss_values = []  # To store loss values for testing
@@ -147,7 +146,7 @@ def train_model_1(model, train_loader, test_loader, criterion, optimizer, num_ep
     # Save the best model
     torch.save(best_model_state_dict, 'best_model.pth')
 
-def train_model(model, train_loader, test_loader, criterion, optimizer, num_epochs=10):
+def train_model(model, train_loader, test_loader, criterion, optimizer, num_epochs=10): #This functions was used for model 4 and it plots the accuracy and loss according to the global batched steps
     loss_values = []  # To store loss values for training
     accuracy_values = []  # To store accuracy values for training
     test_loss_values = []  # To store loss values for testing
@@ -234,7 +233,7 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, num_epoc
     torch.save(best_model_state_dict, 'best_model.pth')
 
 
-def evaluate_model(model, test_loader, criterion):
+def evaluate_model(model, test_loader, criterion): #function to evaluate the model accuracy and loss on the test set
     model.eval()
     correct = 0
     total = 0
@@ -257,12 +256,12 @@ def evaluate_model(model, test_loader, criterion):
 
     return test_loss, test_accuracy
 
-num_artists = len(set(artist_to_label(artist) for _, artist in train_dataset))
-model = LSTMModel(len(vocab), embedding_dim=500, hidden_dim=128, output_dim=num_artists, num_layers=2)
+num_artists = len(set(artist_to_label(artist) for _, artist in train_dataset)) #counting the number of artists (which is 3)
+model = LSTMModel(len(vocab), embedding_dim=500, hidden_dim=128, output_dim=num_artists, num_layers=2) #creating the model
 
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
-train_model(model, train_loader, test_loader, criterion, optimizer, num_epochs=150)
+train_model(model, train_loader, test_loader, criterion, optimizer, num_epochs=150) #Training the model
 
-evaluate_model(model, test_loader, criterion)
+evaluate_model(model, test_loader, criterion) #Evaluating the model
